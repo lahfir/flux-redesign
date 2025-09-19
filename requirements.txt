@@ -1,0 +1,7 @@
+gradio>=4.0.0
+pillow
+requests
+fal-client
+python-dotenv
+numpy
+scikit-image
