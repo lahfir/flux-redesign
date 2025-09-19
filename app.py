@@ -2,7 +2,7 @@ import io
 import json
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import gradio as gr
 from PIL import Image
@@ -14,12 +14,16 @@ from restyle.planner import (
     load_tokens_from_json,
     tokens_from_simple_form,
     build_edit_plan,
-    DEFAULT_STEPS_ORDER,
+    DEFAULT_STEP_KEYS,
+    DEFAULT_STEP_LABELS,
+    ALL_STEP_LABELS,
+    steps_from_labels,
 )
 
 # Load .env if present
 try:
     from dotenv import load_dotenv  # type: ignore
+
     load_dotenv()
 except Exception:
     pass
@@ -71,8 +75,9 @@ def on_click_build_tokens(
 
 def on_click_restyle(
     image: Image.Image,
+    brand_logo: Optional[Image.Image],
     tokens_json: str,
-    steps_to_run: List[str],
+    steps_labels: List[str],
     seed: int,
     strength_mult: float,
     backend: str,
@@ -87,11 +92,15 @@ def on_click_restyle(
     except Exception as e:
         raise gr.Error(f"Invalid tokens JSON: {e}")
 
-    if not steps_to_run:
-        steps_to_run = DEFAULT_STEPS_ORDER
+    step_keys = steps_from_labels(steps_labels)
+    if not step_keys:
+        step_keys = list(DEFAULT_STEP_KEYS)
+
+    if "convert_light_mode" in step_keys and "convert_dark_mode" in step_keys:
+        raise gr.Error("Select either light mode or dark mode conversion, not both.")
 
     # Build edit plan (ordered steps with prompts)
-    plan = build_edit_plan(tokens=tokens, steps=steps_to_run)
+    plan = build_edit_plan(tokens=tokens, steps=step_keys, brand_logo=brand_logo)
 
     # Run plan via Kontext backend
     outputs, log = run_restyle_plan(
@@ -102,6 +111,7 @@ def on_click_restyle(
         strength_multiplier=strength_mult,
         seed_jitter=jitter,
         save_dir=ROOT / "outputs",
+        brand_logo=brand_logo,
     )
 
     final_img = outputs[-1] if outputs else image
@@ -125,6 +135,7 @@ Drop a UI screenshot and apply your brand tokens (colors, corner radii, shadows)
     with gr.Row():
         with gr.Column(scale=1):
             image = gr.Image(type="pil", label="Upload app screenshot")
+            brand_logo = gr.Image(type="pil", label="Upload brand logo (optional)", height=200)
             gr.Markdown("### Brand Tokens — Quick Form")
             brand_name = gr.Textbox(label="Brand name", value="Algominds")
             with gr.Row():
@@ -158,9 +169,9 @@ Drop a UI screenshot and apply your brand tokens (colors, corner radii, shadows)
             load_sample = gr.Button("Load sample tokens")
             with gr.Accordion("Steps to run", open=True):
                 steps = gr.CheckboxGroup(
-                    choices=DEFAULT_STEPS_ORDER,
-                    value=DEFAULT_STEPS_ORDER,
-                    label="Select steps"
+                    choices=ALL_STEP_LABELS,
+                    value=DEFAULT_STEP_LABELS,
+                    label="Select steps",
                 )
             with gr.Row():
                 backend = gr.Radio(
@@ -184,18 +195,39 @@ Drop a UI screenshot and apply your brand tokens (colors, corner radii, shadows)
     build_btn.click(
         on_click_build_tokens,
         inputs=[
-            brand_name, primary, secondary, background, surface, link,
-            text_on_dark, text_on_light, radius_button, radius_card, radius_input, radius_chip,
-            shadow_e1, shadow_e2
+            brand_name,
+            primary,
+            secondary,
+            background,
+            surface,
+            link,
+            text_on_dark,
+            text_on_light,
+            radius_button,
+            radius_card,
+            radius_input,
+            radius_chip,
+            shadow_e1,
+            shadow_e2,
         ],
-        outputs=[tokens_json]
+        outputs=[tokens_json],
     )
     load_sample.click(lambda: _load_sample_tokens(), outputs=[tokens_json])
 
     restyle_btn.click(
         on_click_restyle,
-        inputs=[image, tokens_json, steps, seed, strength_mult, backend, jitter, show_gallery],
-        outputs=[result, gallery, info]
+        inputs=[
+            image,
+            brand_logo,
+            tokens_json,
+            steps,
+            seed,
+            strength_mult,
+            backend,
+            jitter,
+            show_gallery,
+        ],
+        outputs=[result, gallery, info],
     )
 
 if __name__ == "__main__":

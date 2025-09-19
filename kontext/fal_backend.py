@@ -42,20 +42,14 @@ def _image_to_bytes(img: Image.Image, fmt: str = "PNG") -> bytes:
 def _upload_image_to_fal(img: Image.Image) -> str:
     """Upload input image → get URL for image_url."""
     import fal_client
-    data = _image_to_bytes(img, "PNG")
-    url = None
     try:
-        up = fal_client.upload(data)  # type: ignore[attr-defined]
-        url = getattr(up, "url", None) or (up.get("url") if isinstance(up, dict) else None)
+        return fal_client.upload_image(img, format="png")
     except Exception:
+        data = _image_to_bytes(img, "PNG")
         try:
-            up = fal_client.storage.upload(data)  # type: ignore[attr-defined]
-            url = getattr(up, "url", None) or (up.get("url") if isinstance(up, dict) else None)
+            return fal_client.upload(data, content_type="image/png", file_name="input.png")
         except Exception as e:
             raise RuntimeError("FAL upload failed. Try: pip install -U fal-client") from e
-    if not url:
-        raise RuntimeError("FAL upload returned no URL.")
-    return url
 
 
 def _first_image_url(result: Dict[str, Any]) -> Optional[str]:
@@ -93,7 +87,7 @@ def apply_edit(
     prompt: str,
     negative_prompt: str = "",
     strength: float = 0.3,  # kept for API compat
-    seed: int = 0,          # kept for API compat
+    seed: int = 0,          # forwarded to API when available
     region_hint: str = "global",
 ) -> Image.Image:
     """
@@ -109,7 +103,7 @@ def apply_edit(
 
     image_url = _upload_image_to_fal(image)
 
-    args = {
+    args: Dict[str, Any] = {
         "prompt": combined_prompt,
         "image_url": image_url,
         "num_inference_steps": 28,
@@ -120,6 +114,8 @@ def apply_edit(
         "acceleration": "none",
         "resolution_mode": "match_input",
     }
+    if isinstance(seed, int) and seed > 0:
+        args["seed"] = seed
 
     def _on_queue_update(update):
         try:
